@@ -1,0 +1,35 @@
+Somebody, please, help me with a help file for this program.
+
+Outline:
+- Introduction (what the program does, how it can help the user fulfill his goal much more)
+- Setting your gear up for high-quality recording
++ connecting the cables (how to connect great quality)
++ step-by-step guide on how to use this program
+  - sound card
+- High quality audio tips
+- When not to record from analog sources
+
+
+ponerle un codiguito que si esta prendido lower on clip, automaticamente aga una funcion que apague las luces en un timeout_add (que retorne False por supuesto), pero solo una vez osea si el lapso es 1s y clipea variasv eces en un segundo, entonces el timeout puesto debe removerse y ponerse otro en su lugar.
+
+deteccion de sound cards y mixers correspondientes, con nombres 
+
+hacer que cuando se detecte clip y este marcado el checkmark de on clipping que se baje el bolumen, se ponga un timeout_add que borre el clipping indicator despues de .5 segundos
+el detector de clips esta actuando demasiado rapido.  basicamente si se clipea, se baja el bolumen demasiado.  sospecho que esto es porque llegan clips y se esta actuando a posteriori. deberia esperarse un chance antes de bajar el volumen next time.  o tal vez se deba exclusivamente al comportamiento de mi sound card sblive.
+
+alsa support?  maybe bridging into alsa so I can monitor output levels instead of just recording levels?
+
+config tambien debe guardarse cuando el usuario CIERRA LA SESION.
+
+sample rate and bit depth eleccion?  o autochoice the best one and inform the user which one is being used?
+no tiene boton de minimizar la ventana principal!
+
+hacer que tenga colorcitos el vu meter de mi hevada
+son dos pixeles de ancho, uno de espacio, no tienen bloque de sombra, conforme se acercan al rango maximo se ponen rojos van de verde a amarillo y a rojo, fondo negro (aunque el fondo que tenemos ahorita esta bastante bien.  si toca pintar los dos pixeles completos en lugar de solo uno, se hace, sr. osea se pinta el foco completo o no se lo pinta (soy de la idea de que el ultimo foco se pinte con menor intensidad de color, proporcional a la intensidad del nivel osea si tocaba pintar 0.5 se lo pinta 0.5*color) ! tienen gravity (osea el meter decae lentamente si las subsiguientes samples no son tan intensas).  que tenga tick marks en el rango tambien seria bueno. y peaks que falloffeen lentamente o se queden fijos relacionados con el peak level indicator
+
+revisar si la formula de calcular DB es verdadera... a mi no me parece tan cierto eh
+
+ahora si estoy CASI SEGURO de que la formula esta mal proque tiene un * 20 donde deberia segun yo ser * 10.  averiguar en wikipedia, y averiguar como calcular, mas precisamente, dBFS en lugar de dBs
+
+null device output deberia ser posible y ¿asi deberia empezar talvez by default?
+maybe I can take a picture of a square VU meter led, while on and off, and use that to paint above my vu meter bars! I'm a genius!

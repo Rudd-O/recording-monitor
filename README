@@ -1,0 +1,14 @@
+*** Recording level monitor ***
+-----------------------------------------------------
+by Rudd-O
+
+
+--- What is this program? ---
+
+Do you use your computer to record audio regularly?  Have you noticed how hard it is to get great quality sound when recording into a computer?  Did you ever try to set volume levels in your gear while juggling with input levels on your sound cards?  Then this program is for you.
+
+This program records analog audio from the sources you choose and plays it back simultaneously so you can hear it, while monitoring the loudness (input) level of the recording.  You'll be able to hear and see whether the volume is too loud on your audio gear (introducing analog distortion and digital clipping), or if it's too low (letting background noise and hiss win the race into your computer.
+
+In the same spirit, you can choose which sound card you want to record from, which sound card you want use to hear the recorded sound, choose a recording input line and a recording input level mixer, and adjust the input level (optionally having the program lower the level if the input is too loud).
+
+This program is licensed to you under the GNU General Public License.

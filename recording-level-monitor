@@ -1,0 +1,1228 @@
+#!/usr/bin/env python
+
+# recording-level-monitor code file
+
+import sys
+import locale
+import gobject
+import pygtk
+pygtk.require("2.0")
+import gtk
+import gtk.glade
+import pango
+import gnome
+import gnome.ui
+from os import spawnlp, popen, system, P_NOWAIT, umask, getuid
+import pwd
+from threading import Thread
+from Queue import Queue, Empty
+from string import *
+import errno
+import os
+import signal
+import ossaudiodev
+import array
+
+def get_shared_path():
+	testfile = 'version'
+	sharedirs = [".",os.path.join(os.path.dirname(sys.argv[0]),"../share/recording-level-monitor")]
+	sharepath = None
+	for sharedir in sharedirs:
+		fname = os.path.join(os.path.abspath(sharedir),testfile)
+		if os.path.exists(fname):
+			sharepath = os.path.abspath(sharedir)
+			break
+	
+	if sharepath is None:
+		raise Exception, "Recording level monitor shared files " + testfile + " cannot be found in any of " + str(sharedirs) + " default paths"
+	
+	return sharepath
+
+def get_version():
+	f = file(os.path.join(get_shared_path(),"version"))
+	vers = f.readlines()
+	f.close()
+	return vers[0].strip()
+
+debug = False
+
+def debug_print(something):
+	if debug:
+		print something
+		sys.stdout.flush()
+
+def runcom(command):
+		retvalue = os.fork()
+		if retvalue == 0:
+			retstatus = os.system(command)
+			if retstatus != 0:
+				print "os.system %s failed with status %s"%(command,retstatus)
+			os._exit(0)
+		else:
+			debug_print( "We as the parent continue happily merry after")
+			pid,status = os.waitpid(retvalue,0)
+			debug_print( "Child process %s exited with status %s"%(pid,status))
+
+
+class RecPlayThread(Thread):
+	def __init__(self,record_device,playback_device):
+		Thread.__init__(self)
+		self.record_device = record_device
+		self.playback_device = playback_device
+		self.blocks = Queue()
+		self.highest_levels = Queue()
+	
+	def run(self):
+		channels = 2
+		bytes_per_sample = 2
+		samples_per_second = 44100
+		
+		samples_per_read_per_channel = 1000
+		length = 1 * channels * bytes_per_sample * samples_per_read_per_channel
+		# we're basically reading 2205 two-byte samples from each channel, which equals to one twentieth of a second of audio
+		
+		self.record_device.setfmt(ossaudiodev.AFMT_S16_LE)
+		self.playback_device.setfmt(ossaudiodev.AFMT_S16_LE)
+		self.record_device.channels(channels)
+		self.playback_device.channels(channels)
+		self.record_device.speed(samples_per_second)
+		self.playback_device.speed(samples_per_second)
+		
+		t = Thread(target=self.process_blocks)
+		t.start()
+		
+		while not hasattr(self,"_done"):
+			# read, write and process in queue
+			try:
+				blocks = self.record_device.read(length)
+				self.playback_device.write(blocks)
+			except IOError,e:
+				if e.errno == 9: # audio device was closed, so we bail out of this thread
+# 					print "Audio device has been closed"
+					return
+				else:
+					raise
+			self.blocks.put(blocks)
+			
+	def process_blocks(self):
+# 		print "Async processing blocks"
+		while not hasattr(self,"_done"):
+		
+			try: blocks = self.blocks.get_nowait()
+			except Empty:
+				import time
+				time.sleep(0.05) # will hold on processing for five centiseconds (fifty milliseconds)
+				continue
+			
+			highest_left_value = 0
+			highest_right_value = 0
+			
+			newblocks = array.array("h",blocks).tolist()
+			offset = 0
+			while True:
+				try:
+					left_value = abs(newblocks[offset])
+					right_value = abs(newblocks[offset + 1])
+				except IndexError: break
+# 			while blocks:
+# 				left_chunk,right_chunk,blocks = (blocks[0:2],blocks[2:4],blocks[4:])
+# 				la = array.array("h",left_chunk)
+# 				ra = array.array("h",right_chunk)
+# 				left_value = abs(la.tolist()[0])
+# 				right_value = abs(ra.tolist()[0])
+# 				left_value = (255-ord(left_chunk[0])) *255  #+ 255-ord(left_chunk[0])
+# 				right_value = (255-ord(right_chunk[0])) *255 #+ 255-ord(right_chunk[0])
+# 				print left_value,right_value
+#  				print "values %s %s %s %s"%(255-ord(left_chunk[0]),255-ord(left_chunk[1]),255-ord(right_chunk[0]),255-ord(right_chunk[1]))
+				if left_value > highest_left_value: highest_left_value = left_value
+				if right_value > highest_right_value: highest_right_value = right_value
+				
+				offset = offset + 2
+				
+# 			print "Highest values: %s %s"%(highest_left_value,highest_right_value)
+			self.highest_levels.put((highest_left_value,highest_right_value))
+	
+	def stop(self):
+		self._done = True
+
+
+class VolumeRecordAdjust (gtk.glade.XML):
+# 	prefs = None
+# 	device_list = None
+# 	app_list = None
+# 	device_view = None
+# 	app_view = None
+# 	device = None
+# 	tray_icon = None
+# 	config = None
+	
+	def __init__ (self):
+		gtk.glade.XML.__init__(self,os.path.join(get_shared_path(),'recording-level-monitor.glade'))
+# 		self.prefs = self.get_widget("preferences")
+# 		self.device_view = self.get_widget("deviceview")
+		self.window = self.get_widget("window")
+
+# 		self.load_config()
+# 		self.prepare_stores()
+		self.prepare_widgets()
+		self.connect_signals()
+		
+		self.read_devices()
+		
+		self.load_config()
+		
+		self.reload_monitoring()
+		
+# 		self.setup_session_management()
+# 		self.prepare_widgets()
+# 		self.start_running_check()
+		
+# 		self.volume_controller = VolumeController()
+		
+# 		if self.config["app_visible"] is True:
+# 			self.prefs.show()
+	
+# 	def toggle_main_window(self,caller=None,data=None):
+# 		if self.prefs.get_property("visible") == False:
+# 			self.prefs.present()
+# 			self.prefs.grab_focus()
+# 		else:
+# 			self.prefs.hide()
+# 		return True
+# 
+# 	def main_window_closed(self,caller=None,data=None):
+# 		self.quit()
+# 
+
+	def update_status(self,string):
+		widget = self.get_widget("statusbar")
+		widget.push(0,string)
+		
+	def prepare_widgets(self):
+		
+		widget = self.get_widget("window")
+		widget.set_icon_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
+		
+		self.get_widget("about_dialog").set_icon_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
+		self.get_widget("detached_meters").set_icon_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
+		self.get_widget("about_image").set_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
+		
+		title = "<span weight=\"bold\"><big><big>Recording level monitor</big></big></span>"
+		version = "<b>version "+get_version()+"</b>"
+		subtitle = "Helping you prepare the best quality recordings."
+		
+		self.get_widget("label_about").set_markup(title + "\n" + version + "\n" + subtitle)
+		
+		self.get_widget("about_dialog").set_transient_for(self.get_widget("window"))
+# 		self.get_widget("detached_meters").set_transient_for(self.get_widget("window"))
+		
+		self.update_status("Hover your mouse arrow over the controls for helpful explanations.")
+	
+		widget = self.get_widget("input_source")
+		cell = gtk.CellRendererText()
+		widget.pack_start(cell)
+		widget.set_attributes(cell,text=0)
+		
+		widget = self.get_widget("audio_device")
+		cell = gtk.CellRendererText()
+		widget.pack_start(cell)
+		widget.set_attributes(cell,text=0)
+		
+		widget = self.get_widget("playback_device")
+		cell = gtk.CellRendererText()
+		widget.pack_start(cell)
+		widget.set_attributes(cell,text=0)
+
+		widget = self.get_widget("input_level_mixer")
+		cell = gtk.CellRendererText()
+		widget.pack_start(cell)
+		widget.set_attributes(cell,text=0)
+		
+# 		for a in ("right_monitor",):
+# 			w = self.get_widget(a)
+# 			w.modify_bg(gtk.STATE_NORMAL,gtk.gdk.color_parse("#777"))
+# 			w.modify_bg(gtk.STATE_SELECTED,gtk.gdk.color_parse("green"))
+
+		def redraw(self,w=None,user_data=None):
+			
+			drawable = self.window
+			drawable_width,drawable_height = drawable.get_size()
+			if not hasattr(self,"fggc"):
+				colormap = drawable.get_colormap()
+				self.fggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("#22FF22"))
+				self.lightfggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("#BBFFBB"))
+				self.darkfggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("#00dd00"))
+				self.bggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("#555555"))
+# 				self.bggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("red"))
+				self.lightbggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("#BBBBBB"))
+				self.darkbggc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("#000000"))
+				self.linegc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("white"))
+				self.pangogc = gtk.gdk.GC(drawable,foreground = colormap.alloc_color("white"))
+			if not hasattr(self,"last_proportion"): self.last_proportion = 0.0
+			
+# 			rectangle = drawable.get_frame_extents()
+			drawable.begin_paint_rect(gtk.gdk.Rectangle(0,0,drawable_width,drawable_height))
+			
+# 			self.last_proportion = 1
+			last_pixel_x = drawable_width - 1
+			last_pixel_y = drawable_height - 1
+			
+			
+			def gen_squares(width,height,margin,total_width,xstart=0,ystart=0):
+				squares = []
+				start = xstart
+				while start < total_width:
+					square = [start,ystart,min(width,total_width-start),height]
+					squares.append(square)
+					start = start + width + margin
+				
+				return squares
+
+			def plot_square(square):
+				x,y,w,h = square
+				if w > 2:
+					drawable.draw_rectangle(self.fggc,True,x,y,w,h)
+				if w >= 2:
+					drawable.draw_line(self.darkfggc,x+w-1,y,x+w-1,h) #lineader
+					drawable.draw_line(self.darkfggc,x,y+h-1,x+w-1,y+h-1) #lineaabajo
+					drawable.draw_line(self.lightfggc,x,y,x+w-1,y) # lineaarriba 
+					drawable.draw_line(self.lightfggc,x,y,x,y+h) #lineaizq
+				
+
+			lit_pixel_width = int(drawable_width*self.last_proportion)
+			
+			draw_as_bars = False
+			draw_as_squares = True
+			
+			if draw_as_bars:
+				# the background rectangle
+				drawable.draw_rectangle(self.bggc,True,lit_pixel_width,0,drawable_width,drawable_height)
+				drawable.draw_line(self.lightbggc,last_pixel_x,0,last_pixel_x,last_pixel_y) #lineader
+				drawable.draw_line(self.lightbggc,lit_pixel_width,last_pixel_y,last_pixel_x,last_pixel_y) #lineaabajo
+				drawable.draw_line(self.darkbggc,lit_pixel_width,0,last_pixel_x,0) # lineaarriba 
+				drawable.draw_line(self.darkbggc,lit_pixel_width,0,lit_pixel_width,last_pixel_y) #lineaizq
+				
+				#the level meter rectangle
+				if lit_pixel_width:
+					if lit_pixel_width >= 2:
+						drawable.draw_rectangle(self.fggc,True,0,0,lit_pixel_width-1,last_pixel_y)
+					if lit_pixel_width >= 2:
+						drawable.draw_line(self.darkfggc,lit_pixel_width-1,0,lit_pixel_width-1,last_pixel_y) #lineader
+						drawable.draw_line(self.darkfggc,0,last_pixel_y,lit_pixel_width-1,last_pixel_y) #lineaabajo
+						drawable.draw_line(self.lightfggc,0,0,lit_pixel_width-1,0) # lineaarriba 
+						drawable.draw_line(self.lightfggc,0,0,0,last_pixel_y) #lineaizq
+				
+			if draw_as_squares:
+				drawable.draw_rectangle(self.bggc,True,0,0,drawable_width,drawable_height)
+				squares = gen_squares(5,drawable_height-2,1,lit_pixel_width-2,xstart=1,ystart=1)
+				for a in squares:
+					plot_square(a)
+				drawable.draw_line(self.lightbggc,last_pixel_x,0,last_pixel_x,last_pixel_y) #lineader
+				drawable.draw_line(self.lightbggc,0,last_pixel_y,last_pixel_x,last_pixel_y) #lineaabajo
+				drawable.draw_line(self.darkbggc,0,0,last_pixel_x,0) # lineaarriba 
+				drawable.draw_line(self.darkbggc,0,0,0,last_pixel_y) #lineaizq
+			
+			drawable.end_paint()
+				
+		def set_fraction(self,proportion):
+			self.last_proportion = proportion # and save it for the next time around
+			self.redraw()
+		
+		for a in ("right_monitor","left_monitor"):
+		
+			w = self.get_widget(a)
+			w.map()
+			
+			import new
+			w.set_fraction = new.instancemethod(set_fraction,w,gtk.DrawingArea)
+			w.redraw = new.instancemethod(redraw,w,gtk.DrawingArea)
+			w.set_fraction(0)
+			w.connect("expose_event",w.redraw)
+
+
+# # 		for a in (gtk.STATE_ACTIVE,gtk.STATE_SELECTED):
+# 			self.get_widget("left_monitor").modify_bg(a,gtk.gdk.color_parse("green"))
+# 			self.get_widget("left_monitor").modify_bg(a,gtk.gdk.color_parse("black"))
+# 			self.get_widget("left_monitor").modify_fg(a,gtk.gdk.color_parse("white"))
+
+		x = self.get_widget("draw_vu_decibels")
+		self.get_widget("db_range_group").set_sensitive(x.get_active())
+		
+		def light_up(self):
+			self.lit_up = True
+			self.modify_bg(gtk.STATE_NORMAL,gtk.gdk.color_parse("#A70909"))
+		
+		def reset_light(self):
+			try: delattr(self,"lit_up")
+			except: pass
+			self.child.modify_fg(gtk.STATE_NORMAL,gtk.gdk.color_parse("white"))
+			if self.is_focus(): self.on_focus()
+			else: self.modify_bg(gtk.STATE_NORMAL,gtk.gdk.color_parse("#777"))
+				
+		def on_focus(self):
+			self.modify_bg(gtk.STATE_NORMAL,gtk.gdk.color_parse("#999"))
+			
+		def on_unfocus(self):
+			if hasattr(self,"lit_up"): self.light_up()
+			else: self.reset_light()
+		
+		def set_markup(self,markup):
+			self.child.set_markup(markup)
+		
+		for a in ["left_peak","right_peak"]:
+			widget = self.get_widget(a)
+			import new
+			widget.reset_light = new.instancemethod(reset_light,widget,gtk.EventBox)
+			widget.light_up = new.instancemethod(light_up,widget,gtk.EventBox)
+			widget.on_focus = new.instancemethod(on_focus,widget,gtk.EventBox)
+			widget.on_unfocus = new.instancemethod(on_unfocus,widget,gtk.EventBox)
+			widget.set_markup = new.instancemethod(set_markup,widget,gtk.EventBox)
+			widget.reset_light()
+# 			widget.set_label("")
+
+		self.get_widget("window").show()
+		
+		
+	def read_devices(self):
+		model = gtk.ListStore(str,str)
+		widget = self.get_widget("audio_device")
+		widget.set_model(model)
+		widget = self.get_widget("playback_device")
+		widget.set_model(model)
+
+		devs = [("/dev/dsp","/dev/mixer"),("/dev/dsp1","/dev/mixer1")]
+		
+		for devpair in devs:
+			model.append(devpair)
+
+	def on_audio_device_changed(self,w=None,e=None,p=None):
+# 		print "Input source changed"
+# 		print w, e, p
+# 		print w.get_active()
+		adw = self.get_widget("audio_device")
+		pdw = self.get_widget("playback_device")
+		model = adw.get_model()
+		if adw.get_active() < 0:
+			return
+		if pdw.get_active() < 0:
+			return
+		audio_device = model[adw.get_active(),0][0]
+		mixer =model[adw.get_active(),0][1]
+		playback_device = model[pdw.get_active(),0][0]
+		
+		self.update_status("Recording from %s (%s) and playing into %s"%(audio_device,mixer,playback_device))
+# 		print "Audio device changed to",audio_device
+# 		print "Playback device changed to",playback_device
+# 		print "Mixer device changed to",mixer
+		
+		self.stop_recording()
+		self.open_mixer(mixer)
+		self.start_recording(audio_device,playback_device)
+
+	def on_playback_device_changed(self,w=None,e=None,p=None):
+		# mirror the other control's activity
+		self.on_audio_device_changed(w,e,p)
+
+	def open_mixer(self,mixer_device):
+		self.mixer=ossaudiodev.openmixer(mixer_device)
+		mixer = self.mixer
+		rec_controls = mixer.reccontrols()
+		all_controls = mixer.controls()
+				
+		widget = self.get_widget("input_source")
+		widget2 = self.get_widget("input_level_mixer")
+		
+		model = gtk.ListStore(str)
+		widget.set_model(model)
+		model2 = gtk.ListStore(str)
+		widget2.set_model(model2)
+		
+		rec_sources = mixer.get_recsrc()
+		selected = None
+		for a in range(len(ossaudiodev.control_names)):
+			label = ossaudiodev.control_labels[a]
+			if all_controls & (1 << a):
+				model2.append((label,))
+			if rec_controls & (1 << a):
+				label = ossaudiodev.control_labels[a]
+				model.append((label,))
+				if rec_sources & (1 << a):
+					selected = label
+# 					print "%s is currently selected" % selected
+
+		
+		if not selected:
+			first = model.get_iter_root()
+			widget.set_active_iter(first)
+		else:
+			a = 0
+			for row in model:
+				if row[0] == selected:
+					widget.set_active(a)
+					break
+				a= a+1
+# 					print "Hola!",row[0],row
+		
+		selected_input_source_label = model[widget.get_active()][0]
+		for a in range(len(model2)):
+			if model2[a][0] == "IGain":
+				widget2.set_active(a)
+				break
+			if model2[a][0] == selected_input_source_label:
+				widget2.set_active(a)
+# 		selected_input_source_index = ossaudiodev.control_labels.index(selected_input_source_label)
+		# we tentatively select the same line, but some devices have IGain!
+		
+		
+	
+	def on_input_level_mixer_changed(self,w=None,e=None,p=None):
+		
+# 		print "being called"
+		model2 = w.get_model()
+		level = self.mixer.get(ossaudiodev.control_labels.index(model2[w.get_active()][0]))
+# 		print "Hey baby",selected_input_source_label,level
+		level = ( level[0] + level[1] ) / 2
+		
+		self.get_widget("recording_level").set_value(level)
+	
+# 	def on_input_level_mixer_changed(self,w=None,e=None,f=None):
+# 		self.on_recording_level_value_changed(w,e,f)
+		
+	
+	def on_input_source_changed(self,w=None,e=None,p=None):
+# 		print "Input source changed"
+# 		print w, e, p
+# 		print w.get_active()
+		model = w.get_model()
+		label =model[w.get_active(),0][0]
+# 		print "Input source changed to",label
+		
+		index = ossaudiodev.control_labels.index(label)
+		
+		self.mixer.set_recsrc (1 << index)
+		
+		selected_input_source_index = ossaudiodev.control_labels.index(label)
+		widget2 = self.get_widget("input_level_mixer")
+		model2 = widget2.get_model()
+		# we tentatively select the same line, but some devices have IGain!
+		
+		selected_input_source_label = label
+		for a in range(len(model2)):
+			if model2[a][0] == "IGain":
+				widget2.set_active(a)
+				break
+			if model2[a][0] == selected_input_source_label:
+				widget2.set_active(a)
+
+# 
+# 		widget2.set_active(selected_input_source_index)
+
+		
+	def set_recording_level(self,volume):
+		# volume must range from 0 to 100
+		volume = int(volume)
+		
+		w = self.get_widget("input_level_mixer")
+		active = w.get_active()
+		label = w.get_model()[active][0]
+		self.mixer.set(ossaudiodev.control_labels.index(label),(volume,volume))
+		
+	def on_recording_level_value_changed(self,w=None,e=None,f=None):
+# 		print w,e,f
+		self.set_recording_level(self.get_widget("recording_level").get_value())
+		
+		
+	def connect_signals(self):
+		self.signal_autoconnect(self)
+		 #twenty per second frequency, hard coded FIXME
+
+		
+	def on_window_destroy(self,w,e=None):
+		self.stop_recording()
+		self.save_config()
+		gtk.main_quit()
+
+		
+	def reload_monitoring(self):
+		if hasattr(self,"monitor_levels_timeout_id"):
+			gobject.source_remove(self.monitor_levels_timeout_id)
+		value = self.get_widget("refresh_frequency").get_value()
+		value = int(1000/value) # times per millisecond
+		self.monitor_levels_timeout_id = gobject.timeout_add(value,self.monitor_levels)
+	
+	def on_refresh_frequency_value_changed(self,w,e=None):
+		self.reload_monitoring()
+		
+	def stop_recording(self):
+		if hasattr(self,"recplaythread"):
+			self.recplaythread.stop()
+			delattr(self,"recplaythread")
+			for a in ["audiodev","playbackaudiodev","mixer"]:
+				getattr(self,a).close()
+				delattr(self,a)
+		
+	def start_recording(self,audio_device,playback_device):
+		
+		if hasattr(self,"recplaythread"): # fixme
+			raise Exception, "Cannot start recording if it is already started"
+		
+		try: self.audiodev = ossaudiodev.open(audio_device,"r")
+		except Exception,e:
+			if hasattr(e,"strerror"): e = e.strerror
+			self.update_status("Cannot record from %s: %s"%(audio_device,str(e)))
+			return
+		try: self.playbackaudiodev = ossaudiodev.open(playback_device,"w")
+		except Exception,e:
+			if hasattr(e,"strerror"): e = e.strerror
+			self.update_status("Cannot play into %s: %s"%(playback_device,str(e)))
+			return
+		
+		self.recplaythread = RecPlayThread(self.audiodev,self.playbackaudiodev)
+		self.recplaythread.start()
+		
+		
+	def lower_record_level(self):
+		w = self.get_widget("recording_level")
+		val = w.get_value()
+		w.set_value(val - 1)
+		
+	def monitor_levels(self):
+		if not hasattr(self,"recplaythread"): return True
+			
+		def get_peak_levels():
+			levels = []
+			while True:
+				try: levels.append(self.recplaythread.highest_levels.get_nowait())
+				except Empty: break
+			if not levels: return
+			left_sample_value = [] ; right_sample_value = []
+			for level in levels:
+				left_sample_value.append(level[0])
+				right_sample_value.append(level[1])
+			left_sample_value = max(left_sample_value) ; right_sample_value = max(right_sample_value)
+			return (left_sample_value,right_sample_value)
+		
+		def calculate_dB(normalized_sample):
+			# receives a sample in range 0 .0- 1.0   this function assumes a 96 dB dynamic range
+			#FIXME ver si esto es cierto
+			if normalized_sample == 1: return 0.0
+			if normalized_sample == 0: return -96.0
+			from math import log
+			base = 10
+			return log(normalized_sample,base)*20.0
+		
+		def linearscale_dB(dbfsvalue,minimum=-96):
+			minimum = float(minimum)
+			linear = 1 - dbfsvalue/minimum
+			return max(linear,0)
+		
+		format = "<b><small>%s</small></b>"
+
+# 		----------- start code ----------------
+		
+		try: left_peak_sample,right_peak_sample = get_peak_levels()
+		except TypeError: return True #move on!
+		
+		draw_as_samples =self.get_widget("draw_vu_samples").get_active()
+		if self.get_last_peak_values() and self.get_last_peak_values()[0] != draw_as_samples:
+			 self.forget_last_peak_values()
+		
+		left_peak_pc,right_peak_pc = [ a / 32768.0 for a in [ left_peak_sample , right_peak_sample ] ]
+		left_peak_db,right_peak_db = [ calculate_dB(a) for a in [ left_peak_pc,right_peak_pc ] ]
+		
+		if left_peak_sample >= 32767: self.get_widget("left_peak").light_up()
+		if right_peak_sample >= 32767: self.get_widget("right_peak").light_up()
+		if self.get_widget("lower_record_level").get_active():
+			if left_peak_sample >= 32767 or  right_peak_sample >= 32767:
+				self.lower_record_level()
+		
+		pk = self.get_last_peak_values()
+		if draw_as_samples:
+			format2 = "%d"
+			l_fraction = left_peak_pc
+			r_fraction = right_peak_pc
+			l_text = format%format2%left_peak_sample
+			r_text = format%format2%right_peak_sample
+			if pk: lpk,rpk = (max(pk[1],left_peak_sample),max(pk[2],right_peak_sample))
+			else: lpk,rpk = (left_peak_sample,right_peak_sample)
+		else:
+			format2 = "%.2f"
+			desired_range = self.get_widget("db_range").get_value()
+			l_fraction = linearscale_dB(left_peak_db,desired_range)
+			r_fraction = linearscale_dB(right_peak_db,desired_range)
+			l_text = format%format2%left_peak_db
+			r_text = format%format2%right_peak_db
+			if pk: lpk,rpk = (max(pk[1],left_peak_db),max(pk[2],right_peak_db))
+			else: lpk,rpk = (left_peak_db,right_peak_db)
+		
+		l_peaktext = format%format2%lpk
+		r_peaktext = format%format2%rpk
+		self.get_widget("left_peak").set_markup(l_peaktext)
+		self.get_widget("right_peak").set_markup(r_peaktext)
+		self.get_widget("left_value").set_markup(l_text)
+		self.get_widget("right_value").set_markup(r_text)
+		self.get_widget("left_monitor").set_fraction(l_fraction)
+		self.get_widget("right_monitor").set_fraction(r_fraction)
+		
+		self.set_last_peak_values(draw_as_samples,lpk,rpk)
+			
+		return True
+		
+	def on_clip_indicator_focus_in_event(self,a=None,b=None,c=None,d=None):
+		a.on_focus()
+	
+	def on_clip_indicator_focus_out_event(self,a=None,b=None,c=None,d=None):
+		a.on_unfocus()
+	
+	def get_last_peak_values(self):
+		if hasattr(self,"last_peak_values"): return self.last_peak_values
+		
+	def set_last_peak_values(self,draw_as_samples,left_peak,right_peak):
+		self.last_peak_values = (draw_as_samples,left_peak,right_peak)
+	
+	def forget_last_peak_values(self,which=None):
+		""" which can be "left", "right" or None"""
+		if hasattr(self,"last_peak_values"):
+			# now we'll choose which values of the last peak values to reset, based on which widget the user requested clearing, or if None is passed, then everything gets cleared
+			if which:
+				draw_as_samples,left_peak_value,right_peak_value = self.last_peak_values
+				if "left" in which:
+					if draw_as_samples: left_peak_value = 0
+					else: left_peak_value = -96.0
+				else:
+					if draw_as_samples: right_peak_value = 0
+					else: right_peak_value = -96.0
+				self.last_peak_values = (draw_as_samples,left_peak_value,right_peak_value)
+			else: delattr(self,"last_peak_values")
+			
+	def clear_clip_indicators(self,a=None,b=None,c=None,d=None):
+		
+		resettor_keys = [32,65421,65293]
+
+		if hasattr(b,"keyval"): # if this was a key press, a wrong one, poof!
+			if b.keyval not in resettor_keys: return False
+
+		# here we reset the peak values
+		if a: parm = a.get_name()
+		else: a = None
+		self.forget_last_peak_values(a.get_name())
+		
+		#and here we reset the widgets
+		if a:
+			thelist = [a.get_name()]
+			a.grab_focus()
+		else: thelist = ["left_peak","right_peak"]
+		for a in thelist:
+			self.get_widget(a).get_child().set_label("<small><b> </b></small>")
+			self.get_widget(a).reset_light()
+	
+	def on_draw_vu_decibels_toggled(self,w,e=None):
+		self.get_widget("db_range_group").set_sensitive(w.get_active())
+		self.reload_monitoring()
+		
+	def on_vu_meter_handlebox_child_attached(self,w,e=None,f=None):
+# 		print w.get_parent().size_request()
+		w.get_child().set_size_request(-1,-1)
+		w.get_child().set_padding(0,0,0,8)
+	
+	def on_vu_meter_handlebox_child_detached(self,w,e=None,f=None):
+# 		print w.get_parent().size_request()
+		sr = w.get_child().get_allocation().width
+		w.get_child().set_size_request(sr,-1)
+		w.get_child().set_padding(8,8,8,8)
+		
+		gdkwindow = w.get_child().get_parent_window()
+		gdkwindow.set_keep_above(True)
+# 		window = w.get_child().get_parent_window()
+# 		print window
+# 		print window.get_window_type()
+# 		window.set_keep_above(True)
+
+	def detach_meters(self,w,e=None,f=None,g=None):
+		w = self.get_widget("vu_meter_container")
+		window = self.get_widget("detached_meters")
+		width,height = (w.get_allocation().width,w.get_allocation().height)
+		window.set_default_size(width,height)
+		window.set_keep_above(True)
+		window.realize()
+		w.reparent(window)
+		window.show()
+		self.get_widget("detach").hide()
+		self.get_widget("attach").show()
+
+	def attach_meters(self,w,e=None,f=None,g=None):
+		w = self.get_widget("vu_meter_container")
+		window = self.get_widget("detached_meters")
+		w.reparent(self.get_widget("vu_meter_vbox"))
+		self.get_widget("detach").show()
+		self.get_widget("attach").hide()
+		window.hide()
+		window.unrealize()
+		return True
+
+	def load_config(self):
+		
+		import pickle
+		
+		try:
+			fn = os.path.expanduser("~") + "/.recording-level-monitor.conf"
+			f = open(fn,"r")
+			prefs = pickle.load(f)
+			
+# 			print prefs
+			
+			key = "audio_device"
+			if prefs.has_key(key):
+				w = self.get_widget(key)
+				m = w.get_model()
+				for a in range(len(m)):
+					if m[a][0] == prefs[key]: w.set_active(a)
+			
+			key = "playback_device"
+			if prefs.has_key(key):
+				w = self.get_widget(key)
+				m = w.get_model()
+				for a in range(len(m)):
+					if m[a][0] == prefs[key]: w.set_active(a)
+			
+			
+			key = "lower_record_level"
+			if prefs.has_key(key): self.get_widget(key).set_active(prefs[key])
+			
+			key = "draw_vu_samples"
+			if prefs.has_key(key):
+				if prefs[key]: self.get_widget(key).set_active(True)
+				else: self.get_widget("draw_vu_decibels").set_active(True)
+			
+			key = "db_range"
+			if prefs.has_key(key): self.get_widget(key).set_value(prefs[key])
+			
+			key = "refresh_frequency"
+			if prefs.has_key(key): self.get_widget(key).set_value(prefs[key])
+			
+			f.close()
+
+		except IOError, e: pass
+			
+		except EOFError,e: pass
+	
+	def save_config(self):
+		fn = os.path.expanduser("~") + "/.recording-level-monitor.conf"
+		os.umask(077)
+		f = open(fn,"w")
+		
+		
+		prefs = {}
+		adw = self.get_widget("audio_device")
+		pdw = self.get_widget("playback_device")
+		model = adw.get_model()
+		if adw.get_active() >= 0:
+			prefs["audio_device"] = model[adw.get_active(),0][0]
+		if pdw.get_active() >= 0:
+			prefs["playback_device"] = model[pdw.get_active(),0][0]
+		prefs["lower_record_level"]= self.get_widget("lower_record_level").get_active()
+		prefs["draw_vu_samples"] = self.get_widget("draw_vu_samples").get_active()
+		prefs["db_range"] = self.get_widget("db_range").get_value()
+		prefs["refresh_frequency"] = self.get_widget("refresh_frequency").get_value()
+		
+		import pickle
+		pickle.dump(prefs,f)
+		f.close()
+		
+	def show_about_dialog(self,caller=None):
+		self.get_widget("about_dialog").present()
+	
+	def dismiss_about_dialog(self,caller=None,e=None):
+		self.get_widget("about_dialog").hide()
+		return True
+
+	def run_uri(self,uri): gnome.url_show(uri)
+
+	def open_website(self,caller = None):
+		self.run_uri("http://www.amautacorp.com/staff/Rudd-O/projects/ups-front/")
+		
+	def open_author_website(self,caller = None):
+		self.run_uri("http://www.amautacorp.com/staff/Rudd-O/")
+		
+	def send_mail_to_author(self,caller = None):
+		self.run_uri("mailto:rudd-o@amautacorp.com")
+	
+	def open_gpl(self,caller = None):
+		self.run_uri("http://www.fsf.org/copyleft/gpl.txt")
+
+	def toggle_help_window(self,w,e=None):
+		if w.get_active():
+			self.get_widget("help_window").show()
+		else:
+			self.get_widget("help_window").hide()
+# 
+# 	def __apply_app_priorities(self):
+# 		prios = self.config["app_priorities"].split(",")
+# 		prios.reverse()
+# 		
+# 		for prioapp in prios:
+# 			i = self.app_list.get_iter((0,))
+# 			
+# 			while isinstance(i,gtk.TreeIter):
+# 				app = self.app_list.get_value(i,0)
+# 				if app.get_name() == prioapp:
+# 					self.app_list.move_after(i,None)
+# 					break;
+# 				i=self.app_list.iter_next(i)
+# 
+# 	def prepare_stores(self):
+# 		self.device_list = gtk.ListStore(str)
+# 		devices = [ "/dev/js0","/dev/js1","/dev/input/js0","/dev/input/js1" ]
+# 		devicesfound = False
+# 		for a in devices:
+# 			try:
+# 				m = open(a,"r")
+# 				self.device_list.append((a,))
+# 				m.close()
+# 				devicesfound = True
+# 			except Exception:
+# 				pass
+# 		
+# 		if devicesfound == False:
+# 			self.set_status_text("No joystick devices found.\nPlease check your system configuration.")
+# 	
+# 		self.app_list = gtk.ListStore(gobject.TYPE_PYOBJECT,gobject.TYPE_BOOLEAN,str)
+# 		preliminary_list = [ tvtime(),Rhythmbox(), XMMS(),Beep(),amaroK() ]
+# 		for a in preliminary_list:
+# 			try:
+# 				running = False
+# 				self.app_list.append((a,running,a.get_name()))
+# 				bullshit = a.get_process_name()
+# 			except NotImplementedError:
+# 				pass
+# 				
+# 		self.__apply_app_priorities()
+# 	
+# 	def start_running_check(self):
+# 		self.check_running_apps()
+# 		gobject.timeout_add(1000,self.check_running_apps)
+# 	
+# 		
+# 	def celldatamethod(self,column, cell, model, iterator, user_data=None):
+# 		running = self.app_list.get_value(iterator,1)
+# 		if running is True:
+# 			cell.set_property("stock-id",gtk.STOCK_YES)
+# 		else:
+# 			cell.set_property("stock-id",gtk.STOCK_NO)
+# 
+# 	def prepare_tray_icon(self):
+# 		self.tray_icon = JoystickControlTrayIcon()
+# 		self.tray_icon.set_toggle_callback(self.toggle_preferences)
+# 		self.tray_icon.show()
+# 
+# 	def toggle_preferences(self,caller=None,data=None):
+# 		if self.prefs.get_property("visible") == False:
+# 			self.prefs.present()
+# 			self.prefs.grab_focus()
+# 		else:
+# 			self.prefs.hide()
+# 	
+# 	def prepare_widgets(self):
+# 		self.prepare_tray_icon()
+# 		self.prefs.set_icon_from_file(path.join(get_shared_path(),"gnome-joystick-control-small.png"))
+# 		self.get_widget("logo").set_from_file(path.join(get_shared_path(),"gnome-joystick-control-small.png"))
+# 		
+# 		self.app_view.set_model(self.app_list)
+# 		pcr = gtk.CellRendererPixbuf()
+# # 		pcr.set_property("xalign",0)
+# # 		pcr.set_property("xpad",10)
+# 		tcr = gtk.CellRendererText()
+# 		self.app_view.insert_column_with_attributes(-1,"Application",tcr,text=2)
+# 		self.app_view.insert_column_with_attributes(-1,"Running?",pcr)
+# 		self.app_view.get_column(1).set_cell_data_func(pcr,self.celldatamethod)
+# 		self.app_view.get_column(0).set_property("min-width",110)
+# 		self.device_view.set_model(self.device_list)
+#  		self.device_view.set_text_column(0)
+# 		if self.config["joystick_device"]:
+# 			self.device_view.child.set_text(self.config["joystick_device"])
+# 		else:
+# 			try:
+# 				myiter = self.device_list.get_iter((0,))
+# 				value = self.device_list.get_value(myiter,0)
+# 				self.device_view.child.set_text(value)
+# 				#self.device_view.emit("changed")
+# 			except Exception:
+# 				pass
+# 	
+# 	def check_running_apps(self):
+# 		import glob
+# 		cmdlines = glob.glob("/proc/*/cmdline")
+# 		myuid = os.getuid()
+# 		lines = []
+# 		for a in cmdlines:
+# 			try:
+# 				if os.stat(a).st_uid == myuid:
+# 					f = file(a,"rb")
+# 					lines.append(f.readlines()[0].split("\0")[0])
+# 					f.close()
+# 			except: pass
+# 
+# 			
+# 		i = self.app_list.get_iter((0,))
+# 		
+# 		while isinstance(i,gtk.TreeIter):
+# 			app = self.app_list.get_value(i,0)
+# 			pname = app.get_process_name()
+# 			logname = pwd.getpwuid(getuid())[0] + " "
+# 			self.app_list.set_value(i,1,False)
+# 			app.running = False
+# 			for line in lines:
+# 				if pname == line:
+# 					self.app_list.set_value(i,1,True)
+# 					app.running = True
+# 					break
+# 			i=self.app_list.iter_next(i)
+# 
+# 		return True
+# 	
+# 	def on_up_clicked(self,w):
+# 		model = self.app_list
+# 		selected = []
+#  		selection = self.app_view.get_selection()
+#  		selection.selected_foreach(lambda model, path, iter, 
+#                             sel=selected: sel.append(path))
+# 		
+# 		for a in selected:
+# 			(row,) = a
+# 			if (row > 0):
+# 				thiselement = model.get_iter(a)
+# 				elementbefore = model.get_iter((row - 1 ,))
+# 				model.move_before(thiselement,elementbefore)
+# 
+# 
+# 		
+# 	def on_down_clicked(self,w):
+# 		model = self.app_list
+# 		selected = []
+#  		selection = self.app_view.get_selection()
+#  		selection.selected_foreach(lambda model, path, iter, 
+#                             sel=selected: sel.append(path))
+# 		
+# 		for a in selected:
+# 			(row,) = a
+# 			thiselement = model.get_iter(a)
+# 			try:
+# 				elementbefore = model.get_iter((row + 1 ,))
+# 				model.move_after(thiselement,elementbefore)
+# 			except Exception:
+# 				pass
+# 		
+# 	def on_appconfig_clicked(self):
+# 		pass
+# 	
+# 	def on_deviceview_changed(self,widget):
+# 		item = widget.child.get_text()
+# 		self.set_device(item)
+# 	
+# 	def set_device(self,device):
+# 		if self.device is not None:
+# 			self.device.destroy()
+# 			self.device = None
+# 		try:
+# 			self.device = JoystickReader(self.on_joystick_event,device,4000)
+# 			self.update_device_indicator(True)
+# 		except Exception, e:
+# 			# FIXME: need to show on the UI that the device is not open
+# 			self.set_status_text("%s cannot be opened" % device)
+# 			self.update_device_indicator(False)
+# 			pass
+# 		if self.device:
+# 			self.device.start()
+# 	
+# 	def update_device_indicator(self,good_value):
+# 		if good_value is True:
+# 			self.get_widget("invalid_device").hide()
+# 		else:
+# 			self.get_widget("invalid_device").show()
+# 	
+# 	def on_joystick_event(self,event):
+# 		gobject.idle_add(self.on_joystick_event_synchronized,event)
+# 
+# 	def set_status_text(self,text):
+# 		widget = self.get_widget("status_label")
+# 		text = text.replace("\n",": ")
+# 		widget.push(0,text)
+# 
+# 	
+# 	def on_joystick_event_synchronized(self,event):
+# 		if isinstance(event,AxisReleaseEvent) or isinstance(event,ButtonReleased):
+# 			return
+# 			
+# # this code lets you use priorities
+# 		app = None
+# 		try:
+# 			i = self.app_list.get_iter((0,))
+# 		except Exception:
+# 			self.set_status_text("No controllable applications are installed.")
+# 			return
+# 		
+# 		app_found = False
+# 		try:
+# 			while isinstance(i,gtk.TreeIter):
+# 				app = self.app_list.get_value(i,0)
+# 				if app.is_running():
+# 					app_found = True
+# 					break
+# 				i = self.app_list.iter_next(i)
+# 		except NotImplementedError:
+# 				pass
+# 
+# 		if app_found is False:
+# 			self.set_status_text("No controllable application is open.")
+# 			return
+# 
+# # and this code lets you choose the app in the select box
+# # 		model = self.app_list
+# # 		selected = []
+# #  		selection = self.app_view.get_selection()
+# #  		selection.selected_foreach(lambda model, path, iter, 
+# #                             sel=selected: sel.append(path))
+# # 		
+# # 		app = None
+# # 		for a in selected:
+# # 			(row,) = a
+# # 			thiselement = model.get_iter(a)
+# # 			app = model.get_value(thiselement,0)
+# # 			break
+# # 		
+# # 		print "Selected: " ,app
+# # 		
+# # 		if app is None:
+# # 			self.set_status_text("Please select an application first")
+# # 			return
+# 
+# 		command = ""
+# 		try:
+# 			if isinstance(event,AxisUpPressed) and event.pad_number() == 0:
+# 					command = "raising master volume"
+# 					self.volume_controller.up()
+# 			elif isinstance(event,AxisDownPressed) and event.pad_number() == 0:
+# 					command ="lowering master volume"
+# 					self.volume_controller.down()
+# 			elif isinstance(app,MusicApplication):
+# 				if isinstance(event,AxisRightPressed) and event.pad_number() == 0:
+# 					command = "playing the next song"
+# 					app.next()
+# 				elif isinstance(event,AxisLeftPressed) and event.pad_number() == 0:
+# 					command ="playing the previous song"
+# 					app.previous()
+# 				elif isinstance(event,ButtonPressed) and event.button() == 2:
+# 					command ="toggling playback"
+# 					app.toggle_play_pause()
+# 				elif isinstance(event,ButtonPressed) and event.button() == 3:
+# 					command ="stopping"
+# 					app.stop()
+# 				elif isinstance(event,ButtonPressed) and event.button() == 1:  # maybe this stuff should be done with properties instead of method calls... this is not java, you know!
+# 					command ="moving forward 5 seconds"
+# 					app.ff()
+# 				elif isinstance(event,ButtonPressed) and event.button() == 4:
+# 					command ="rewinding 5 seconds"
+# 					app.rew()
+# 			elif isinstance(app,TVApplication):
+# 				if isinstance(event,AxisRightPressed) and event.pad_number() == 0:
+# 					command = "changing to next channel"
+# 					app.next_channel()
+# 				elif isinstance(event,AxisLeftPressed) and event.pad_number() == 0:
+# 					command ="changing to previous channel"
+# 					app.previous_channel()
+# 				elif isinstance(event,ButtonPressed) and event.button() == 4:
+# 					command ="jumping to previous channel"
+# 					app.jump_to_last_channel()
+# 
+# 			else:
+# 				self.set_status_text("I don't know how to control that application!")
+# 		
+# 		except NotImplementedError:
+# 			self.set_status_text("%s does not support %s" % ( app.get_name() , command ) )
+# 			return
+# 			
+# 		if len(command) > 0:
+# 			self.set_status_text(str(event) + "\n" + command.capitalize())
+# 		else:
+# 			self.set_status_text(str(event))
+# 
+# 
+# 	def on_closebutton_clicked(self,caller=None,extraobject=None):
+# 		self.quit()
+# 	
+# 	def on_preferences_closed(self,caller=None,extraobject=None):
+# 		self.toggle_preferences()
+# 		return True
+# 		
+# 	def quit(self,caller=None,extraobject=None):
+# 		self.save_config()
+# 		gtk.main_quit()
+# 		
+# 	def show_dialog(self,dialogtype,message,title=None):
+# 		if title:
+# 			dialogtitle = title
+# 			title = "<span weight='bold' size='larger'>" + title + "</span>\n\n"
+# 		else:
+# 			dialogtitle = "Joystick control - " + dialogtype
+# 			title = ""
+# 		self.get_widget(dialogtype + "_message").set_markup(title+message)
+# 		self.get_widget(dialogtype + "_dialog").set_title(dialogtitle)
+# 		self.get_widget(dialogtype + "_dialog").present()
+# 
+# 	def show_error_dialog(self,message,title=None):
+# 		return self.show_dialog("error",message,title)
+# 	
+# 	def show_info_dialog(self,message,title=None):
+# 		return self.show_dialog("info",message,title)
+# 	
+# 	def show_warning_dialog(self,message,title=None):
+# 		return self.show_dialog("warning",message,title)
+# 	
+# 	def show_about_dialog(self,caller=None):
+# 		self.get_widget("about_dialog").present()
+# 		
+# 	def dismiss_error_dialog(self,caller=None,e=None):
+# 		self.get_widget("error_dialog").hide()
+# 		return True
+# 		
+# 	def dismiss_about_dialog(self,caller=None,e=None):
+# 		self.get_widget("about_dialog").hide()
+# 		return True
+# 		
+# 	def dismiss_info_dialog(self,caller=None,e=None):
+# 		self.get_widget("info_dialog").hide()
+# 		return True
+# 		
+# 	def dismiss_warning_dialog(self,caller=None,e=None):
+# 		self.get_widget("warning_dialog").hide()
+# 		return True
+# 		
+# 
+# 	def setup_session_management(self):
+# 		self.smclient = gnome.ui.master_client()
+# 		self.smclient.connect_object("save-yourself",self.save_yourself,None)
+# 		self.smclient.connect_object("die",self.die,None)
+# 
+# 	def save_yourself(self,*args):
+# 		self.save_config()
+# 
+# 	def die(self,u=None):
+# 		self.quit()
+
+
+def main():
+
+	import signal
+		
+	app = VolumeRecordAdjust()
+	
+	def sighandler(sig,frame):
+		gobject.idle_add(app.on_window_destroy,None,None)
+	signal.signal(signal.SIGINT,sighandler)
+
+	gtk.threads_init()
+	gtk.main()
+
+
+if __name__ == "__main__":
+	main()

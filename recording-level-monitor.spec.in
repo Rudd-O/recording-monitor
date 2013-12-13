@@ -1,0 +1,75 @@
+%define ver @VERSION@
+%define rel 1
+%define prefix /usr
+
+Summary:        An audio recording input level for your computer
+Summary(es):	Un monitor de nivel de grabación para su computador
+Name:           recording-level-monitor
+Vendor:         Manuel Amador (Rudd-O)
+Version:        %ver
+Release:        %rel
+License:        GPL
+Group:          System/Monitoring
+Source:         %{name}-%ver.tar.gz
+URL:            http://www.amautacorp.com/staff/Rudd-O/
+BuildRoot:      %{_tmppath}/build-%{name}-%{ver}
+Requires:       pygtk2 pygtk2-libglade gnome-python2
+BuildArch:      noarch
+
+%description
+Recording level monitor lets you record analog audio and play it back
+simultaneously from your computer's sound card(s), while monitoring the
+loudness (input) level of the recording.
+
+In the same spirit, you can choose which sound card you want to record
+from, which sound card you want to play back audio into, choose a recording
+input line and a recording input level mixer, and adjust the input level
+(optionally having the program lower the level if the input is too loud).
+
+
+%description -l es
+Monitor de nivel le permite grabar audio analógico y reproducirlo
+simultáneamente desde su(s) tarjeta(s) de sonido en su computador, mientras
+Ud. visualiza el volumen (nivel de entrada) de la grabación.
+
+De la misma forma, Ud. puede escoger qué tarjeta de sonido usar para
+grabar, cuál usar para reproducir, de qué toma de entrada grabar y cuál
+control de volumen ajustar (opcionalmente permitiéndole al programa
+disminuir el nivel de grabación automáticamente si el volumen es muy alto).
+
+
+%changelog
+* Wed Nov 9 2005 Manuel Amador <rudd-o@amautacorp.com> 0.2.1-1
+- corrected lower volume checkmark bug
+
+* Wed Nov 9 2005 Manuel Amador <rudd-o@amautacorp.com> 0.2.0-1
+- Added detachable VU meters
+- Improved organization in user interface
+
+* Tue Nov 8 2005 Manuel Amador <rudd-o@amautacorp.com> 0.1.0-1
+- The first "production quality" release
+
+* Fri Nov 4 2005 Manuel Amador <rudd-o@amautacorp.com> 0.0.1-1
+- First release
+
+%prep
+rm -rf $RPM_BUILD_ROOT
+
+%setup
+./configure --prefix=/usr
+
+%build
+
+%install
+make DESTDIR=$RPM_BUILD_ROOT install
+
+
+
+%files
+%defattr(-,root,root)
+%prefix/bin/%name
+%prefix/share/applications
+%prefix/share/pixmaps/%name.png
+%prefix/share/%name
+%doc %prefix/man/man1/*
+%doc %prefix/share/doc/%name-%ver
