@@ -4,10 +4,10 @@
 srcdir=`dirname $0`
 test -z "$srcdir" && srcdir=.
 
-PKG_NAME="recording-level-monitor"
+PKG_NAME="recording-monitor"
 
 (test -f $srcdir/configure.ac \
-  && test -f $srcdir/recording-level-monitor.glade) || {
+  && test -f $srcdir/recording-monitor.glade) || {
     echo -n "**Error**: Directory "\`$srcdir\'" does not look like the"
     echo " top-level directory of $PKG_NAME"
     exit 1

@@ -1,8 +1,8 @@
 dnl Process with autoconf to produce configure
 
 AC_INIT
-AC_CONFIG_SRCDIR([recording-level-monitor.glade])
-AM_INIT_AUTOMAKE(recording-level-monitor, `cat $srcdir/version`)
+AC_CONFIG_SRCDIR([recording-monitor.glade])
+AM_INIT_AUTOMAKE(recording-monitor, `cat $srcdir/version`)
 AM_MAINTAINER_MODE
 
 AM_PATH_PYTHON
@@ -22,7 +22,7 @@ dnl *************************************************
 dnl gettext support
 dnl *************************************************
 
-GETTEXT_PACKAGE=recording-level-monitor
+GETTEXT_PACKAGE=recording-monitor
 AC_SUBST(GETTEXT_PACKAGE)
 dnl AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE",
 dnl		[the gettext domain])
@@ -32,5 +32,5 @@ dnl Checks for eggtray library dependancies
 dnl ===============================================
 PKG_CHECK_MODULES(EGG, gtk+-2.0 >= 2.4.0 libgnomeui-2.0 >=  2.2.0 pygtk-2.0 >= 2.4.0)
 
-AC_CONFIG_FILES([Makefile recording-level-monitor.spec])
+AC_CONFIG_FILES([Makefile recording-monitor.spec])
 AC_OUTPUT

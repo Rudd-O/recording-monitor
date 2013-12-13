@@ -2,7 +2,7 @@
 <!DOCTYPE glade-project SYSTEM "http://glade.gnome.org/glade-project-2.0.dtd">
 
 <glade-project>
-  <name>Recording level monitor</name>
-  <program_name>recording-level-monitor</program_name>
+  <name>Recording monitor</name>
+  <program_name>recording-monitor</program_name>
   <gnome_support>FALSE</gnome_support>
 </glade-project>

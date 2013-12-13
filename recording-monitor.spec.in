@@ -4,7 +4,7 @@
 
 Summary:        An audio recording input level for your computer
 Summary(es):	Un monitor de nivel de grabación para su computador
-Name:           recording-level-monitor
+Name:           recording-monitor
 Vendor:         Manuel Amador (Rudd-O)
 Version:        %ver
 Release:        %rel
@@ -16,8 +16,10 @@ BuildRoot:      %{_tmppath}/build-%{name}-%{ver}
 Requires:       pygtk2 pygtk2-libglade gnome-python2
 BuildArch:      noarch
 
+Obsoletes:      recording-level-monitor
+
 %description
-Recording level monitor lets you record analog audio and play it back
+Recording monitor lets you record analog audio and play it back
 simultaneously from your computer's sound card(s), while monitoring the
 loudness (input) level of the recording.
 

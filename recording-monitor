@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# recording-level-monitor code file
+# recording-monitor code file
 
 import sys
 import locale
@@ -25,7 +25,7 @@ import array
 
 def get_shared_path():
 	testfile = 'version'
-	sharedirs = [".",os.path.join(os.path.dirname(sys.argv[0]),"../share/recording-level-monitor")]
+	sharedirs = [".",os.path.join(os.path.dirname(sys.argv[0]),"../share/recording-monitor")]
 	sharepath = None
 	for sharedir in sharedirs:
 		fname = os.path.join(os.path.abspath(sharedir),testfile)
@@ -34,7 +34,7 @@ def get_shared_path():
 			break
 	
 	if sharepath is None:
-		raise Exception, "Recording level monitor shared files " + testfile + " cannot be found in any of " + str(sharedirs) + " default paths"
+		raise Exception, "Recording monitor shared files " + testfile + " cannot be found in any of " + str(sharedirs) + " default paths"
 	
 	return sharepath
 
@@ -157,7 +157,7 @@ class VolumeRecordAdjust (gtk.glade.XML):
 # 	config = None
 	
 	def __init__ (self):
-		gtk.glade.XML.__init__(self,os.path.join(get_shared_path(),'recording-level-monitor.glade'))
+		gtk.glade.XML.__init__(self,os.path.join(get_shared_path(),'recording-monitor.glade'))
 # 		self.prefs = self.get_widget("preferences")
 # 		self.device_view = self.get_widget("deviceview")
 		self.window = self.get_widget("window")
@@ -201,13 +201,13 @@ class VolumeRecordAdjust (gtk.glade.XML):
 	def prepare_widgets(self):
 		
 		widget = self.get_widget("window")
-		widget.set_icon_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
+		widget.set_icon_from_file(os.path.join(get_shared_path(),'recording-monitor.png'))
 		
-		self.get_widget("about_dialog").set_icon_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
-		self.get_widget("detached_meters").set_icon_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
-		self.get_widget("about_image").set_from_file(os.path.join(get_shared_path(),'recording-level-monitor.png'))
+		self.get_widget("about_dialog").set_icon_from_file(os.path.join(get_shared_path(),'recording-monitor.png'))
+		self.get_widget("detached_meters").set_icon_from_file(os.path.join(get_shared_path(),'recording-monitor.png'))
+		self.get_widget("about_image").set_from_file(os.path.join(get_shared_path(),'recording-monitor.png'))
 		
-		title = "<span weight=\"bold\"><big><big>Recording level monitor</big></big></span>"
+		title = "<span weight=\"bold\"><big><big>Recording monitor</big></big></span>"
 		version = "<b>version "+get_version()+"</b>"
 		subtitle = "Helping you prepare the best quality recordings."
 		
@@ -765,7 +765,7 @@ class VolumeRecordAdjust (gtk.glade.XML):
 		import pickle
 		
 		try:
-			fn = os.path.expanduser("~") + "/.recording-level-monitor.conf"
+			fn = os.path.expanduser("~") + "/.recording-monitor.conf"
 			f = open(fn,"r")
 			prefs = pickle.load(f)
 			
@@ -807,7 +807,7 @@ class VolumeRecordAdjust (gtk.glade.XML):
 		except EOFError,e: pass
 	
 	def save_config(self):
-		fn = os.path.expanduser("~") + "/.recording-level-monitor.conf"
+		fn = os.path.expanduser("~") + "/.recording-monitor.conf"
 		os.umask(077)
 		f = open(fn,"w")
 		

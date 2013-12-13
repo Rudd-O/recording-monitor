@@ -4,16 +4,16 @@ pixmapsdir = $(datadir)/pixmaps
 docdir = $(datadir)/doc/$(PACKAGE)-$(VERSION)
 appsdir = $(datadir)/applications
 
-bin_SCRIPTS = recording-level-monitor
+bin_SCRIPTS = recording-monitor
 
 pixmaps_DATA = \
-	recording-level-monitor.png
+	recording-monitor.png
 
 pkgdata_DATA = \
 	version \
-	recording-level-monitor.glade \
-	recording-level-monitor.gladep \
-	recording-level-monitor.png
+	recording-monitor.glade \
+	recording-monitor.gladep \
+	recording-monitor.png
 
 doc_DATA = \
 	README \
@@ -23,7 +23,7 @@ doc_DATA = \
 	ChangeLog \
 	NEWS
 
-man_MANS = recording-level-monitor.1
+man_MANS = recording-monitor.1
 
 # Why do these need to be explicitly put in EXTRA_DIST?
 
@@ -32,11 +32,11 @@ EXTRA_DIST = \
 	$(pkgdata_DATA) \
 	$(pixmaps_DATA) \
 	$(man_MANS) \
-	recording-level-monitor.desktop recording-level-monitor.spec autogen.sh
+	recording-monitor.desktop recording-monitor.spec autogen.sh
 
 install-data-hook:
 	$(mkinstalldirs) $(DESTDIR)$(appsdir)
-	$(DESKTOP_FILE_INSTALL) --vendor rudd-o --dir $(DESTDIR)$(appsdir) $(srcdir)/recording-level-monitor.desktop
+	$(DESKTOP_FILE_INSTALL) --vendor rudd-o --dir $(DESTDIR)$(appsdir) $(srcdir)/recording-monitor.desktop
 
 rpm: dist
 	rpmbuild -ta $(PACKAGE)-$(VERSION).tar.gz

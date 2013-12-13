@@ -4,7 +4,7 @@
 <glade-interface>
 
 <widget class="GtkWindow" id="window">
-  <property name="title" translatable="yes">Recording level monitor</property>
+  <property name="title" translatable="yes">Recording monitor</property>
   <property name="type">GTK_WINDOW_TOPLEVEL</property>
   <property name="window_position">GTK_WIN_POS_NONE</property>
   <property name="modal">False</property>
@@ -1489,7 +1489,7 @@ Tip: You can detach the meters from this window, into its own floating mini-wind
 		  <property name="left_margin">0</property>
 		  <property name="right_margin">0</property>
 		  <property name="indent">0</property>
-		  <property name="text" translatable="yes">Recording level monitor is a small application whose purpose is helping you make the best quality recordings of analog audio (such as radio shows, TV shows or microphone voiceovers).  Note that Recording level monitor does not actually record audio: all it does is help you set up your equipment for the best quality.
+		  <property name="text" translatable="yes">Recording monitor is a small application whose purpose is helping you make the best quality recordings of analog audio (such as radio shows, TV shows or microphone voiceovers).  Note that Recording monitor does not actually record audio: all it does is help you set up your equipment for the best quality.
 
 Your job is to maximize the quality of your recordings. To do this, you need to maximize the dynamic range: the difference between the loudest and most silently recorded sounds (usually silence).
 
@@ -1499,9 +1499,9 @@ Absolute purity is not attainable: each stage in this process conspires against 
 
 To complicate matters more, some sound cards have what is called a &quot;digital mixer&quot;, which means that the mixer goes *after* the ADC: in these cards, if there is clipping, lowering the mixer volume will not eliminate the distortion.  In these cases you will have to set the input level to the maximum, and only regulate your audio gear's volume.
 
-To get maximum dynamic range, you must pump into your sound card's input a signal as loud as it can take, without producing distortion or damaging your sound card.  Too loud a sound out of your audio source, and you'll get distortion (or colorful smoke).  Too loud an input level in your sound card mixer, and you'll get clipping (digital distortion).  So you need to strike a healthy balance, and this is where Recording level monitor comes in handy.
+To get maximum dynamic range, you must pump into your sound card's input a signal as loud as it can take, without producing distortion or damaging your sound card.  Too loud a sound out of your audio source, and you'll get distortion (or colorful smoke).  Too loud an input level in your sound card mixer, and you'll get clipping (digital distortion).  So you need to strike a healthy balance, and this is where Recording monitor comes in handy.
 
-Recording level monitor can help you find out your sound card's noise floor: the amount of recorded noise when there are no audio inputs connected.
+Recording monitor can help you find out your sound card's noise floor: the amount of recorded noise when there are no audio inputs connected.
 
 Each control in this window has a series of explanations which will help you in your quest of setting playback volume levels and recording input levels to the ideal values for your recording.  Pass your mouse over each one of their labels to find out more about them.</property>
 		</widget>
@@ -1697,7 +1697,7 @@ Each control in this window has a series of explanations which will help you in 
 	  <child>
 	    <widget class="GtkLabel" id="label_about">
 	      <property name="visible">True</property>
-	      <property name="label" translatable="yes">&lt;span weight=&quot;bold&quot;&gt;&lt;big&gt;&lt;big&gt;Recording level monitor&lt;/big&gt;&lt;/big&gt;&lt;/span&gt;
+	      <property name="label" translatable="yes">&lt;span weight=&quot;bold&quot;&gt;&lt;big&gt;&lt;big&gt;Recording monitor&lt;/big&gt;&lt;/big&gt;&lt;/span&gt;
 &lt;b&gt;version x.y&lt;/b&gt;
 An application to help you set up good quality recordings.</property>
 	      <property name="use_underline">False</property>

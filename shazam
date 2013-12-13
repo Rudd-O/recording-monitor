@@ -2,6 +2,6 @@
 
 ./autogen.sh && \
 make rpm && \
-mv *gz /home/rudd-o/Projects/RPM/SRPMS/recording-level-monitor-* \
- /home/rudd-o/Projects/RPM/RPMS/noarch/recording-level-monitor-* \
+mv *gz /home/rudd-o/Projects/RPM/SRPMS/recording-monitor-* \
+ /home/rudd-o/Projects/RPM/RPMS/noarch/recording-monitor-* \
  ../dist

@@ -1,13 +1,13 @@
 [Desktop Entry]
 Encoding=UTF-8
-Name=Recording level monitor
+Name=Recording monitor
 Comment=Record and play audio, while monitoring the input volume level
-GenericName=Recording level monitor
+GenericName=Recording monitor
 Name[es]=Monitor de nivel de grabación
 Comment[es]=Grabar y reproducir audio, y simultáneamente monitorear el nivel de volumen de entrada
 GenericName[es]=Monitor de nivel de grabación
-Exec=recording-level-monitor
-Icon=recording-level-monitor.png
+Exec=recording-monitor
+Icon=recording-monitor.png
 Terminal=false
 Type=Application
 Categories=X-Red-Hat-Base;Application;AudioVideo;
